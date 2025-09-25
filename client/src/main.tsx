@@ -11,9 +11,10 @@ import LoginPage from './pages/LoginPage.tsx';
 import RegisterPage from './pages/RegisterPage.tsx';
 import DashboardPage from './pages/DashboardPage.tsx';
 import ProtectedRoute from './components/ProtectedRoute.tsx';
+import BoardPage from './pages/BoardPage.tsx';
 
 // Placeholder for the individual board page we will build next
-const BoardPage = () => <div>Individual Board Page</div>;
+
 
 const router = createBrowserRouter([
   {

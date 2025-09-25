@@ -1,5 +1,5 @@
 import express from 'express';
-import { createBoard, getBoardsForUser, getBoardById } from '../controllers/board.controller.js';
+import { createBoard, getBoardsForUser, getBoardById, addMemberToBoard } from '../controllers/board.controller.js';
 import { protect } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
@@ -12,5 +12,6 @@ router.route('/')
   .get(getBoardsForUser);
 
 router.route('/:id').get(getBoardById);
+router.route('/:boardId/members').post(addMemberToBoard);
 
 export default router;

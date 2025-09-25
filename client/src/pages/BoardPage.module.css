@@ -1,0 +1,26 @@
+.boardPage {
+  height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f9fafb; /* Light gray background */
+}
+
+.boardHeader {
+  padding: 1rem 2rem;
+  background-color: white;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.boardTitle {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: #111827;
+}
+
+.listsContainer {
+  display: flex;
+  gap: 1.5rem;
+  padding: 1.5rem;
+  overflow-x: auto; /* Allow horizontal scrolling */
+  flex-grow: 1;
+}

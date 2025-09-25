@@ -1,6 +1,7 @@
 import asyncHandler from 'express-async-handler';
 import List from '../models/List.model.js';
 import Board from '../models/Board.model.js';
+import { getIO } from '../socketManager.js'; // 1. Import getIO
 
 // @desc    Create a new list
 // @route   POST /api/boards/:boardId/lists
@@ -20,6 +21,8 @@ const createList = asyncHandler(async (req, res) => {
     name,
     board: boardId,
   });
+
+  getIO().to(boardId).emit('listCreated', { ...list.toObject(), cards: [] });
 
   res.status(201).json(list);
 });

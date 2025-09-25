@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import styles from './DashboardPage.module.css';
+import { useSocket } from '../hook/useSocket';
 
 interface Board {
   _id: string;
@@ -11,6 +12,7 @@ interface Board {
 
 const DashboardPage = () => {
   const { userInfo, logout } = useAuth();
+  const socket = useSocket('http://localhost:5000');
   const navigate = useNavigate();
   const [boards, setBoards] = useState<Board[]>([]);
   const [boardName, setBoardName] = useState('');
@@ -35,6 +37,24 @@ const DashboardPage = () => {
     logout();
     navigate('/login');
   };
+
+  // This useEffect will listen for real-time board invitations
+  useEffect(() => {
+    if (socket) {
+      socket.on('addedToBoard', (newBoard: Board) => {
+        // Add the new board to the list without a page refresh
+        setBoards(prevBoards => [newBoard, ...prevBoards]);
+        alert(`You've been added to a new board: ${newBoard.name}`);
+      });
+    }
+    
+    // Cleanup the listener
+    return () => {
+      if (socket) {
+        socket.off('addedToBoard');
+      }
+    };
+  }, [socket]);
 
   const handleCreateBoard = async (e: FormEvent) => {
     e.preventDefault();

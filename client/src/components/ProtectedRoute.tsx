@@ -3,10 +3,15 @@ import { Navigate, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const ProtectedRoute = () => {
-  const { userInfo } = useAuth();
+  const { userInfo, loading } = useAuth();
 
-  // If the user is logged in, render the child components (e.g., Dashboard).
-  // Otherwise, redirect them to the login page.
+  if (loading) {
+    // If we are still checking for a user, show a loading message
+    return <div>Loading...</div>;
+  }
+
+  // If we are done loading and there's a user, show the page.
+  // Otherwise, redirect to login.
   return userInfo ? <Outlet /> : <Navigate to="/login" replace />;
 };
 
