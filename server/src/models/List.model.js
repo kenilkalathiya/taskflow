@@ -12,6 +12,12 @@ const listSchema = new mongoose.Schema({
     ref: 'Board',
   },
   // We will add card ordering later
+  cardOrder: [
+    {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Card',
+    },
+  ],
 });
 
 const List = mongoose.model('List', listSchema);

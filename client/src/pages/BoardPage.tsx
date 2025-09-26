@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect, type FormEvent } from 'react';
+import { useParams } from 'react-router-dom';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useSocket } from '../hook/useSocket';
@@ -7,8 +7,7 @@ import ListComponent from '../components/ListComponent';
 import Header from '../components/Header';
 import styles from './BoardPage.module.css';
 import { type Card, type List, type BoardData } from '../interfaces/board.interfaces';
-
-
+import { DndContext, type DragEndEvent, closestCorners } from '@dnd-kit/core';
 
 const BoardPage = () => {
   const { id: boardId } = useParams<{ id: string }>();
@@ -18,43 +17,24 @@ const BoardPage = () => {
   const [loading, setLoading] = useState(true);
   const [newListName, setNewListName] = useState('');
 
+  // --- Data Fetching and Real-Time Listeners ---
   useEffect(() => {
     if (socket && boardId) {
       socket.emit('joinBoard', boardId);
     }
 
     if (socket) {
-      // ✅ FIX IS HERE: This listener now checks for duplicates
       socket.on('listCreated', (newList: List) => {
-        setBoardData(prevBoard => {
-          if (!prevBoard) return null;
-          // Check if a list with this ID already exists
-          const listExists = prevBoard.lists.some(list => list._id === newList._id);
-          // If it exists, do nothing. Otherwise, add it.
-          if (listExists) {
-            return prevBoard;
-          }
-          return { ...prevBoard, lists: [...prevBoard.lists, { ...newList, cards: [] }] };
+        setBoardData(prev => {
+          if (!prev || prev.lists.some(l => l._id === newList._id)) return prev;
+          return { ...prev, lists: [...prev.lists, { ...newList, cards: [] }] };
         });
       });
-
       socket.on('cardCreated', (newCard: Card) => {
-        setBoardData(prevBoard => {
-          if (!prevBoard) return null;
-          const cardExists = prevBoard.lists.some(list => 
-            list.cards.some(card => card._id === newCard._id)
-          );
-          if (cardExists) {
-            return prevBoard;
-          }
-          const newLists = prevBoard.lists.map(list => {
-            if (list._id === newCard.list) {
-              return { ...list, cards: [...list.cards, newCard] };
-            }
-            return list;
-          });
-          return { ...prevBoard, lists: newLists };
-        });
+        addCardToList(newCard.list, newCard);
+      });
+      socket.on('cardMoved', (newBoardState: BoardData) => {
+        setBoardData(newBoardState);
       });
     }
 
@@ -71,7 +51,6 @@ const BoardPage = () => {
         setLoading(false);
       }
     };
-
     fetchBoardData();
 
     return () => {
@@ -81,18 +60,15 @@ const BoardPage = () => {
       }
     };
   }, [boardId, userInfo, socket]);
-  
-  const handleCreateList = async (e: React.FormEvent) => {
+
+  // --- Handler Functions ---
+  const handleCreateList = async (e: FormEvent) => {
     e.preventDefault();
     if (!newListName.trim() || !boardId || !userInfo) return;
     try {
       const config = { headers: { Authorization: `Bearer ${userInfo.token}` } };
       const { data: newList } = await axios.post(`/api/boards/${boardId}/lists`, { name: newListName }, config);
-      // This is our "optimistic" update for a fast UI
-      setBoardData(prevBoard => {
-        if (!prevBoard) return null;
-        return { ...prevBoard, lists: [...prevBoard.lists, { ...newList, cards: [] }] };
-      });
+      setBoardData(prev => prev ? { ...prev, lists: [...prev.lists, { ...newList, cards: [] }] } : null);
       setNewListName('');
     } catch (error) {
       console.error('Failed to create list', error);
@@ -100,45 +76,92 @@ const BoardPage = () => {
   };
 
   const addCardToList = (listId: string, newCard: Card) => {
-    setBoardData(prevBoard => {
-      if (!prevBoard) return null;
-      const newLists = prevBoard.lists.map(list => {
-        if (list._id === listId) {
-          return { ...list, cards: [...list.cards, newCard] };
-        }
-        return list;
+    setBoardData(prev => {
+        if (!prev) return null;
+        const newLists = prev.lists.map(list => {
+          if (list._id === newCard.list) {
+            // Avoid adding duplicates
+            if (!list.cards.some(card => card._id === newCard._id)) {
+              return { ...list, cards: [...list.cards, newCard] };
+            }
+          }
+          return list;
+        });
+        return { ...prev, lists: newLists };
       });
-      return { ...prevBoard, lists: newLists };
-    });
   };
 
+  const handleDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || !boardData) return;
+
+    const activeId = active.id.toString();
+    const overId = over.id.toString();
+
+    if (activeId === overId) return;
+
+    const newBoardData = JSON.parse(JSON.stringify(boardData)); // Deep copy
+    const activeList = newBoardData.lists.find((l: List) => l.cards.some((c: Card) => c._id === activeId));
+    const overList = newBoardData.lists.find((l: List) => l._id === overId || l.cards.some((c: Card) => c._id === overId));
+
+    if (!activeList || !overList) return;
+
+    const activeIndex = activeList.cards.findIndex((c: Card) => c._id === activeId);
+    const [draggedCard] = activeList.cards.splice(activeIndex, 1);
+    
+    let overIndex = overList.cards.findIndex((c: Card) => c._id === overId);
+    if (overId === overList._id) { // Dropping on the list container
+      overIndex = overList.cards.length;
+    }
+
+    overList.cards.splice(overIndex, 0, draggedCard);
+    setBoardData(newBoardData); // Optimistic UI update
+
+    // API Call to Persist Changes
+    try {
+      const config = { headers: { Authorization: `Bearer ${userInfo?.token}` } };
+      axios.put(`/api/boards/${boardId}/cards/reorder`, {
+        sourceListId: activeList._id,
+        destListId: overList._id,
+        sourceOrder: activeList.cards.map((c: Card) => c._id),
+        destOrder: overList.cards.map((c: Card) => c._id),
+      }, config);
+      
+      // Broadcast the new state to other users
+      if (socket) {
+        socket.emit('cardMoved', { boardId, boardData: newBoardData });
+      }
+    } catch (error) {
+      console.error("Failed to reorder card", error);
+      // Optional: Revert UI change on error
+    }
+  };
+
+
   if (loading) return <div>Loading board...</div>;
-  if (!boardData) return <div>Board not found. <Link to="/dashboard">Go back to dashboard.</Link></div>;
+  if (!boardData) return <div>Board not found.</div>;
 
   return (
     <div className={styles.boardPage}>
       <Header title={boardData.name} />
-      <main className={styles.listsContainer}>
-        {boardData.lists.map((list) => (
-          <ListComponent 
-            key={list._id} 
-            list={list}
-            onCardCreated={addCardToList} 
-          />
-        ))}
-        {/* Form to create new lists */}
-        <div className={styles.list}>
-          <form onSubmit={handleCreateList}>
-            <input
-              type="text"
-              placeholder="Enter list title..."
-              value={newListName}
-              onChange={(e) => setNewListName(e.target.value)}
+      <DndContext onDragEnd={handleDragEnd} collisionDetection={closestCorners}>
+        <main className={styles.listsContainer}>
+          {boardData.lists.map((list) => (
+            <ListComponent
+              key={list._id}
+              list={list}
+              cards={list.cards}
+              onCardCreated={(listId, newCard) => addCardToList(listId, newCard)}
             />
-            <button type="submit" style={{ marginTop: '8px', width: '100%' }}>Add List</button>
-          </form>
-        </div>
-      </main>
+          ))}
+          <div className={styles.list}>
+            <form onSubmit={handleCreateList}>
+              <input type="text" placeholder="Enter list title..." value={newListName} onChange={(e) => setNewListName(e.target.value)} />
+              <button type="submit" style={{ marginTop: '8px', width: '1hundredpercent' }}>Add List</button>
+            </form>
+          </div>
+        </main>
+      </DndContext>
     </div>
   );
 };

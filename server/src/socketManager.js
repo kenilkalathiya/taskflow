@@ -23,6 +23,12 @@ const initializeSocket = (server) => {
       console.log(`Socket ${socket.id} joined board room: ${boardId}`);
     });
 
+
+    socket.on('cardMoved', (data) => {
+      // Broadcast the change to all other clients in the room
+      socket.to(data.boardId).emit('cardMoved', data.boardData);
+    });
+
     socket.on('disconnect', () => {
       console.log(`🔌 Socket disconnected: ${socket.id}`);
       // Clean up the userSockets map on disconnect

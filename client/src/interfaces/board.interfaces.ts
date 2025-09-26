@@ -13,6 +13,7 @@ export interface List {
   name: string;
   cards: Card[];
   board: string; // The ID of the board this list belongs to
+  cardOrder: string[];
 }
 
 export interface BoardData {

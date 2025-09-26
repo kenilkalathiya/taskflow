@@ -25,22 +25,43 @@ export const getBoardsForUser = asyncHandler(async (req, res) => {
 });
 
 export const getBoardById = asyncHandler(async (req, res) => {
-  const boardId = req.params.id;
+  const { id: boardId } = req.params;
+
+  // 1. Find the board and check user membership
   const board = await Board.findById(boardId);
   if (!board || !board.members.includes(req.user._id)) {
     res.status(404);
     throw new Error('Board not found or user not authorized');
   }
+
+  // 2. Find all lists and all cards belonging to the board
   const lists = await List.find({ board: boardId });
   const cards = await Card.find({ board: boardId });
-  const populatedBoard = {
-    ...board.toObject(),
-    lists: lists.map(list => ({
+
+  // 3. Create a map of cards for efficient lookup
+  const cardsMap = new Map(cards.map(card => [card._id.toString(), , card.toObject()]));
+
+  // 4. Structure the final data
+  const populatedLists = lists.map(list => {
+    // ✅ THIS IS THE FIX:
+    // Check if list.cardOrder exists and is an array before mapping over it.
+    // If it doesn't exist, default to an empty array.
+    const orderedCards = (list.cardOrder || [])
+      .map(cardId => cardsMap.get(cardId.toString()))
+      .filter(Boolean); // Filter out any potential nulls
+
+    return {
       ...list.toObject(),
-      cards: cards.filter(card => card.list.toString() === list._id.toString()),
-    })),
+      cards: orderedCards,
+    };
+  });
+
+  const response = {
+    ...board.toObject(),
+    lists: populatedLists,
   };
-  res.json(populatedBoard);
+
+  res.json(response);
 });
 
 export const addMemberToBoard = asyncHandler(async (req, res) => {
@@ -83,4 +104,27 @@ export const addMemberToBoard = asyncHandler(async (req, res) => {
   // --- END REAL-TIME NOTIFICATION ---
 
   res.status(200).json(board);
+});
+
+export const updateCardOrder = asyncHandler(async (req, res) => {
+  const { boardId } = req.params;
+  const { sourceListId, destListId, sourceOrder, destOrder } = req.body;
+
+  // Verify the user is a member of the board
+  const board = await Board.findById(boardId);
+  if (!board || !board.members.includes(req.user._id)) {
+    res.status(404);
+    throw new Error('Board not found or user not authorized');
+  }
+
+  // If the card was moved within the same list
+  if (sourceListId === destListId) {
+    await List.findByIdAndUpdate(sourceListId, { cardOrder: sourceOrder });
+  } else {
+    // If the card was moved to a different list
+    await List.findByIdAndUpdate(sourceListId, { cardOrder: sourceOrder });
+    await List.findByIdAndUpdate(destListId, { cardOrder: destOrder });
+  }
+
+  res.status(200).json({ message: 'Card order updated successfully' });
 });

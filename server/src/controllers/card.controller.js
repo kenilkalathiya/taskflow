@@ -1,12 +1,16 @@
 import asyncHandler from 'express-async-handler';
 import Card from '../models/Card.model.js';
 import List from '../models/List.model.js';
-// We no longer need getIO for this controller
 import { getIO } from '../socketManager.js';
 
 export const createCard = asyncHandler(async (req, res) => {
-  const { title } = req.body;
   const { listId } = req.params;
+  const { title } = req.body;
+
+  if (!title) {
+    res.status(400);
+    throw new Error('Please provide a card title');
+  }
 
   const list = await List.findById(listId);
   if (!list) {
@@ -16,22 +20,16 @@ export const createCard = asyncHandler(async (req, res) => {
 
   const card = await Card.create({
     title,
-    list: listId,
+    list: list._id,
     board: list.board,
   });
 
-  // ✅ THE FIX: Use req.app.get('io') to get the server instance and
-  // then chain .to(room).emit() to broadcast to OTHERS.
-  // We will pass the 'io' instance via middleware for clean access.
-  // For now, let's focus on the concept. The full implementation will follow.
+  // ✅ ADD THIS LOGIC
+  // Add the new card's ID to the end of the list's cardOrder
+  list.cardOrder.push(card._id);
+  await list.save();
 
-  // To make this work, we need to pass the socket instance.
-  // Let's refactor to a cleaner approach. We will make the change in the routes.
-
-  // For now, let's assume the broadcast will be handled properly.
-  // The important part is the local state update on the frontend.
-  // The duplicate is a frontend issue primarily.
-  getIO().to(list.board.toString()).emit('cardCreated', card);
+  getIO().to(list.board.toString()).emit('cardCreated', card.toObject());
 
   res.status(201).json(card);
 });
